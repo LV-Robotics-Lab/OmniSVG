@@ -321,6 +321,7 @@ def load_models(model_size: str, weight_path: str = None, model_path: str = None
         bin_path = download_model_weights(weight_path, "pytorch_model.bin")
     
     state_dict = torch.load(bin_path, map_location='cpu')
+    state_dict = remap_qwen25vl_state_dict_for_current_transformers(state_dict)
     sketch_decoder.load_state_dict(state_dict)
     print("OmniSVG weights loaded successfully!")
     
@@ -340,6 +341,27 @@ def load_models(model_size: str, weight_path: str = None, model_path: str = None
     print("\n" + "="*60)
     print(f"All {model_size} models loaded successfully!")
     print("="*60 + "\n")
+
+
+def remap_qwen25vl_state_dict_for_current_transformers(state_dict):
+    """Adapt OmniSVG checkpoints saved with the older Qwen2.5-VL module layout.
+
+    Older Transformers exposed the vision tower as ``transformer.visual`` and
+    the language model as ``transformer.model``. Current Transformers exposes a
+    wrapper at ``transformer.model`` with ``visual`` and ``language_model``
+    children. Keep strict loading after this remap so real mismatches still fail.
+    """
+    remapped = {}
+    for key, value in state_dict.items():
+        new_key = key
+        if key.startswith("transformer.visual."):
+            new_key = "transformer.model.visual." + key[len("transformer.visual."):]
+        elif key.startswith("transformer.model."):
+            rest = key[len("transformer.model."):]
+            if rest.startswith(("embed_tokens.", "layers.", "norm.", "rotary_emb.")):
+                new_key = "transformer.model.language_model." + rest
+        remapped[new_key] = value
+    return remapped
 
 
 def detect_text_subtype(text_prompt):
